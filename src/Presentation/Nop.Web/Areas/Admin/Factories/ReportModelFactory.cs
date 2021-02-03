@@ -87,7 +87,7 @@ namespace Nop.Web.Areas.Admin.Factories
                 os: orderStatus,
                 ps: paymentStatus,
                 billingCountryId: searchModel.BillingCountryId,
-                orderBy: searchModel.SearchGroupId,
+                groupBy: (GroupByEnum)searchModel.SearchGroupId,
                 categoryId: searchModel.CategoryId,
                 productId: searchModel.ProductId,
                 manufacturerId: searchModel.ManufacturerId,

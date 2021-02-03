@@ -75,7 +75,7 @@ namespace Nop.Services.Orders
         /// <param name="os">Order status; null to load all records</param>
         /// <param name="ps">Order payment status; null to load all records</param>
         /// <param name="billingCountryId">Billing country identifier; 0 to load all records</param>
-        /// <param name="orderBy">0 - order by day, 1 - order by week, 2 - order by total month</param>
+        /// <param name="groupBy">0 - group by day, 1 - group by week, 2 - group by total month</param>
         /// <param name="pageIndex">Page index</param>
         /// <param name="pageSize">Page size</param>
         /// <returns>Result</returns>
@@ -90,7 +90,7 @@ namespace Nop.Services.Orders
             OrderStatus? os = null,
             PaymentStatus? ps = null,
             int billingCountryId = 0,
-            int orderBy = 0,
+            GroupByEnum groupBy = GroupByEnum.GroupByDay,
             int pageIndex = 0,
             int pageSize = int.MaxValue);
 

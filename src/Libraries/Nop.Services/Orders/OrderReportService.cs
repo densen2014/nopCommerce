@@ -437,7 +437,7 @@ namespace Nop.Services.Orders
         /// <param name="os">Order status; null to load all records</param>
         /// <param name="ps">Order payment status; null to load all records</param>
         /// <param name="billingCountryId">Billing country identifier; 0 to load all records</param>
-        /// <param name="orderBy">0 - order by day, 1 - order by week, 2 - order by total month</param>
+        /// <param name="groupBy">0 - group by day, 1 - group by week, 2 - group by total month</param>
         /// <param name="pageIndex">Page index</param>
         /// <param name="pageSize">Page size</param>
         /// <returns>Result</returns>
@@ -452,7 +452,7 @@ namespace Nop.Services.Orders
             OrderStatus? os = null,
             PaymentStatus? ps = null,
             int billingCountryId = 0,
-            int orderBy = 0,
+            GroupByEnum groupBy = GroupByEnum.GroupByDay,
             int pageIndex = 0,
             int pageSize = int.MaxValue)
         {
@@ -507,11 +507,14 @@ namespace Nop.Services.Orders
             }
 
             //filter by country
-            query = from o in query
-                    join oba in _addressRepository.Table on o.BillingAddressId equals oba.Id
-                    where
-                        billingCountryId <= 0 || oba.CountryId == billingCountryId
-                    select o;
+            if (billingCountryId > 0)
+            {
+                query = from o in query
+                        join oba in _addressRepository.Table on o.BillingAddressId equals oba.Id
+                        where
+                            billingCountryId <= 0 || oba.CountryId == billingCountryId
+                        select o;
+            }
 
             //filter by product
             if (productId > 0)
@@ -526,31 +529,63 @@ namespace Nop.Services.Orders
 
             var primaryStoreCurrency = await _currencyService.GetCurrencyByIdAsync(_currencySettings.PrimaryStoreCurrencyId);
 
-            //day
-            if (orderBy == 0)
+            var items = groupBy switch
             {
-                var items = from oq in query
-                            group oq by $"{oq.CreatedOnUtc.Year}-{oq.CreatedOnUtc.Month}-{oq.CreatedOnUtc.Day}" into result                            
-                            let orderItems = _orderItemRepository.Table.Where(oi => oi.OrderId == result.FirstOrDefault().Id)
-                            select new
-                            {
-                                OrderSummary = result.Key,
-                                OrderSummaryType = orderBy,
-                                OrderCount = result.Count(),
-                                OrderShippingExclTaxSum = result.Sum(o => o.OrderShippingExclTax),
-                                OrderPaymentFeeExclTaxSum = result.Sum(o => o.PaymentMethodAdditionalFeeExclTax),
-                                OrderTaxSum = result.Sum(o => o.OrderTax),
-                                OrderTotalSum = result.Sum(o => o.OrderTotal),
-                                OrederRefundedAmountSum = result.Sum(o => o.RefundedAmount),
-                                OrderTotalCost = orderItems.Sum(oi => (decimal?)oi.OriginalProductCost * oi.Quantity)
-                            };
-                var ssReport =
+                GroupByEnum.GroupByDay => from oq in query
+                                          group oq by $"{oq.CreatedOnUtc.Year}-{oq.CreatedOnUtc.Month}-{oq.CreatedOnUtc.Day}" into result
+                                          let orderItems = _orderItemRepository.Table.Where(oi => oi.OrderId == result.FirstOrDefault().Id)
+                                          select new
+                                          {
+                                              OrderSummary = result.Key,
+                                              OrderSummaryType = groupBy,
+                                              OrderCount = result.Count(),
+                                              OrderShippingExclTaxSum = result.Sum(o => o.OrderShippingExclTax),
+                                              OrderPaymentFeeExclTaxSum = result.Sum(o => o.PaymentMethodAdditionalFeeExclTax),
+                                              OrderTaxSum = result.Sum(o => o.OrderTax),
+                                              OrderTotalSum = result.Sum(o => o.OrderTotal),
+                                              OrederRefundedAmountSum = result.Sum(o => o.RefundedAmount),
+                                              OrderTotalCost = orderItems.Sum(oi => (decimal?)oi.OriginalProductCost * oi.Quantity)
+                                          },
+                GroupByEnum.GroupByWeek => from oq in query
+                                            group oq by $"{oq.CreatedOnUtc.Year}-{oq.CreatedOnUtc.Month}-{oq.CreatedOnUtc.Day - (int)oq.CreatedOnUtc.DayOfWeek}" into result
+                                            let orderItems = _orderItemRepository.Table.Where(oi => oi.OrderId == result.FirstOrDefault().Id)
+                                            select new
+                                            {
+                                                OrderSummary = result.Key,
+                                                OrderSummaryType = groupBy,
+                                                OrderCount = result.Count(),
+                                                OrderShippingExclTaxSum = result.Sum(o => o.OrderShippingExclTax),
+                                                OrderPaymentFeeExclTaxSum = result.Sum(o => o.PaymentMethodAdditionalFeeExclTax),
+                                                OrderTaxSum = result.Sum(o => o.OrderTax),
+                                                OrderTotalSum = result.Sum(o => o.OrderTotal),
+                                                OrederRefundedAmountSum = result.Sum(o => o.RefundedAmount),
+                                                OrderTotalCost = orderItems.Sum(oi => (decimal?)oi.OriginalProductCost * oi.Quantity)
+                                            },
+                GroupByEnum.GroupByMonth => from oq in query
+                                            group oq by $"{oq.CreatedOnUtc.Year}-{oq.CreatedOnUtc.Month}" into result
+                                            let orderItems = _orderItemRepository.Table.Where(oi => oi.OrderId == result.FirstOrDefault().Id)
+                                            select new
+                                            {
+                                                OrderSummary = result.Key,
+                                                OrderSummaryType = groupBy,
+                                                OrderCount = result.Count(),
+                                                OrderShippingExclTaxSum = result.Sum(o => o.OrderShippingExclTax),
+                                                OrderPaymentFeeExclTaxSum = result.Sum(o => o.PaymentMethodAdditionalFeeExclTax),
+                                                OrderTaxSum = result.Sum(o => o.OrderTax),
+                                                OrderTotalSum = result.Sum(o => o.OrderTotal),
+                                                OrederRefundedAmountSum = result.Sum(o => o.RefundedAmount),
+                                                OrderTotalCost = orderItems.Sum(oi => (decimal?)oi.OriginalProductCost * oi.Quantity)
+                                            },
+                _ => throw new ArgumentException("Wrong grouBy parameter", nameof(groupBy)),
+            };
+
+            var ssReport =
                 from orderItem in items
                 orderby orderItem.OrderSummary descending
                 select new SalesSummaryReportLine
                 {
                     Summary = orderItem.OrderSummary,
-                    SummaryType = orderItem.OrderSummaryType,
+                    SummaryType = (int)orderItem.OrderSummaryType,
                     NumberOfOrders = orderItem.OrderCount,
                     Profit = orderItem.OrderTotalSum
                          - orderItem.OrderShippingExclTaxSum
@@ -563,151 +598,50 @@ namespace Nop.Services.Orders
                     OrderTotal = orderItem.OrderTotalSum.ToString()
                 };
 
-                var report = await ssReport.ToPagedListAsync(pageIndex, pageSize);
+            var report = await ssReport.ToPagedListAsync(pageIndex, pageSize);
 
-                foreach (var reportLine in report)
-                {
-                    var date = DateTime.Now;
-                    if (DateTime.TryParseExact(reportLine.Summary, "yyyy-MM-dd", null, DateTimeStyles.None, out date))
-                        reportLine.Summary = date.ToString("MMM dd, yyyy");
-                    else if (DateTime.TryParseExact(reportLine.Summary, "yyyy-M-d", null, DateTimeStyles.None, out date))
-                        reportLine.Summary = date.ToString("MMM dd, yyyy");
-
-                    reportLine.ProfitStr = await _priceFormatter.FormatPriceAsync(reportLine.Profit, true, false);
-                    reportLine.Shipping = await _priceFormatter
-                        .FormatShippingPriceAsync(Convert.ToDecimal(reportLine.Shipping), true, primaryStoreCurrency, (await _workContext.GetWorkingLanguageAsync()).Id, false);
-                    reportLine.Tax = await _priceFormatter.FormatPriceAsync(Convert.ToDecimal(reportLine.Tax), true, false);
-                    reportLine.OrderTotal = await _priceFormatter.FormatPriceAsync(Convert.ToDecimal(reportLine.OrderTotal), true, false);
-                }
-
-                return report;
-            }
-
-            //week
-            if (orderBy == 1)
+            foreach (var reportLine in report)
             {
-                var items = from oq in query
-                            group oq by $"{oq.CreatedOnUtc.Year}-{oq.CreatedOnUtc.Month}-{oq.CreatedOnUtc.Day - (int)oq.CreatedOnUtc.DayOfWeek}" into result
-                            let orderItems = _orderItemRepository.Table.Where(oi => oi.OrderId == result.FirstOrDefault().Id)
-                            select new
-                            {
-                                OrderSummary = result.Key,
-                                OrderSummaryType = orderBy,
-                                OrderCount = result.Count(),
-                                OrderShippingExclTaxSum = result.Sum(o => o.OrderShippingExclTax),
-                                OrderPaymentFeeExclTaxSum = result.Sum(o => o.PaymentMethodAdditionalFeeExclTax),
-                                OrderTaxSum = result.Sum(o => o.OrderTax),
-                                OrderTotalSum = result.Sum(o => o.OrderTotal),
-                                OrederRefundedAmountSum = result.Sum(o => o.RefundedAmount),
-                                OrderTotalCost = orderItems.Sum(oi => (decimal?)oi.OriginalProductCost * oi.Quantity)
-                            };
-                var ssReport =
-                from orderItem in items
-                orderby orderItem.OrderSummary descending
-                select new SalesSummaryReportLine
+                switch (groupBy)
                 {
-                    Summary = orderItem.OrderSummary,
-                    SummaryType = orderItem.OrderSummaryType,
-                    NumberOfOrders = orderItem.OrderCount,
-                    Profit = orderItem.OrderTotalSum
-                         - orderItem.OrderShippingExclTaxSum
-                         - orderItem.OrderPaymentFeeExclTaxSum
-                         - orderItem.OrderTaxSum
-                         - orderItem.OrederRefundedAmountSum
-                         - Convert.ToDecimal(orderItem.OrderTotalCost),
-                    Shipping = orderItem.OrderShippingExclTaxSum.ToString(),
-                    Tax = orderItem.OrderTaxSum.ToString(),
-                    OrderTotal = orderItem.OrderTotalSum.ToString()
+                    case GroupByEnum.GroupByDay:
+                        {
+                            if (DateTime.TryParseExact(reportLine.Summary, "yyyy-MM-dd", null, DateTimeStyles.None, out var date) ||
+                                DateTime.TryParseExact(reportLine.Summary, "yyyy-M-d", null, DateTimeStyles.None, out date))
+                                reportLine.Summary = date.ToString("MMM dd, yyyy");
+                        }
+                        break;
+                    case GroupByEnum.GroupByWeek:
+                        {
+                            var isCorrectDate = DateTime.TryParseExact(reportLine.Summary, "yyyy-MM-dd", null, DateTimeStyles.None, out var date) ||
+                                DateTime.TryParseExact(reportLine.Summary, "yyyy-M-d", null, DateTimeStyles.None, out date);
+                            if (!isCorrectDate)
+                            {
+                                var data = reportLine.Summary.Replace("--", "-").Split("-").Select(int.Parse).ToList();
+                                date = new DateTime(data[0], data[1], 1).AddDays((data[2] + 1) * -1);
+                            }
+                            var date1 = date.ToString("MMM dd, yyyy");
+                            var date2 = date.AddDays(6).ToString("MMM dd, yyyy");
+                            reportLine.Summary = $"{date1} - {date2}";
+                        }
+                        break;
+                    case GroupByEnum.GroupByMonth:
+                        {
+                            if (DateTime.TryParseExact(reportLine.Summary, "yyyy-MM", null, DateTimeStyles.None, out var date) ||
+                                DateTime.TryParseExact(reportLine.Summary, "yyyy-M", null, DateTimeStyles.None, out date))
+                                reportLine.Summary = date.ToString("MMMM, yyyy");
+                        }
+                        break;
                 };
 
-                var report = await ssReport.ToPagedListAsync(pageIndex, pageSize);
-
-                foreach (var reportLine in report)
-                {
-                    var date = DateTime.Now;
-                    if (DateTime.TryParseExact(reportLine.Summary, "yyyy-MM-dd", null, DateTimeStyles.None, out date))
-                    {
-                        var date1 = date.ToString("MMM dd, yyyy");
-                        var date2 = date.AddDays(6).ToString("MMM dd, yyyy");
-                        reportLine.Summary = $"{date1} - {date2}";
-                    }                        
-                    else if (DateTime.TryParseExact(reportLine.Summary, "yyyy-M-d", null, DateTimeStyles.None, out date))
-                    {
-                        var date1 = date.ToString("MMM dd, yyyy");
-                        var date2 = date.AddDays(6).ToString("MMM dd, yyyy");
-                        reportLine.Summary = $"{date1} - {date2}";
-                    }
-
-                    reportLine.ProfitStr = await _priceFormatter.FormatPriceAsync(reportLine.Profit, true, false);
-                    reportLine.Shipping = await _priceFormatter
-                        .FormatShippingPriceAsync(Convert.ToDecimal(reportLine.Shipping), true, primaryStoreCurrency, (await _workContext.GetWorkingLanguageAsync()).Id, false);
-                    reportLine.Tax = await _priceFormatter.FormatPriceAsync(Convert.ToDecimal(reportLine.Tax), true, false);
-                    reportLine.OrderTotal = await _priceFormatter.FormatPriceAsync(Convert.ToDecimal(reportLine.OrderTotal), true, false);
-                }
-
-                return report;
+                reportLine.ProfitStr = await _priceFormatter.FormatPriceAsync(reportLine.Profit, true, false);
+                reportLine.Shipping = await _priceFormatter
+                    .FormatShippingPriceAsync(Convert.ToDecimal(reportLine.Shipping), true, primaryStoreCurrency, (await _workContext.GetWorkingLanguageAsync()).Id, false);
+                reportLine.Tax = await _priceFormatter.FormatPriceAsync(Convert.ToDecimal(reportLine.Tax), true, false);
+                reportLine.OrderTotal = await _priceFormatter.FormatPriceAsync(Convert.ToDecimal(reportLine.OrderTotal), true, false);
             }
 
-            //month
-            if (orderBy == 2)
-            {
-                var items = from oq in query
-                            group oq by $"{oq.CreatedOnUtc.Year}-{oq.CreatedOnUtc.Month}" into result 
-                            let orderItems = _orderItemRepository.Table.Where(oi => oi.OrderId == result.FirstOrDefault().Id)
-                            select new
-                            {
-                                OrderSummary = result.Key,
-                                OrderSummaryType = orderBy,
-                                OrderCount = result.Count(),
-                                OrderShippingExclTaxSum = result.Sum(o => o.OrderShippingExclTax),
-                                OrderPaymentFeeExclTaxSum = result.Sum(o => o.PaymentMethodAdditionalFeeExclTax),
-                                OrderTaxSum = result.Sum(o => o.OrderTax),
-                                OrderTotalSum = result.Sum(o => o.OrderTotal),
-                                OrederRefundedAmountSum = result.Sum(o => o.RefundedAmount),
-                                OrderTotalCost = orderItems.Sum(oi => (decimal?)oi.OriginalProductCost * oi.Quantity)
-                            };
-                var ssReport =
-                from orderItem in items
-                orderby orderItem.OrderSummary descending
-                select new SalesSummaryReportLine
-                {
-                    Summary = orderItem.OrderSummary,
-                    SummaryType = orderItem.OrderSummaryType,
-                    NumberOfOrders = orderItem.OrderCount,
-                    Profit = orderItem.OrderTotalSum
-                         - orderItem.OrderShippingExclTaxSum
-                         - orderItem.OrderPaymentFeeExclTaxSum
-                         - orderItem.OrderTaxSum
-                         - orderItem.OrederRefundedAmountSum
-                         - Convert.ToDecimal(orderItem.OrderTotalCost),
-                    Shipping = orderItem.OrderShippingExclTaxSum.ToString(),
-                    Tax = orderItem.OrderTaxSum.ToString(),
-                    OrderTotal = orderItem.OrderTotalSum.ToString()
-                };
-
-                var report = await ssReport.ToPagedListAsync(pageIndex, pageSize);
-
-                foreach (var reportLine in report)
-                {
-                    reportLine.ProfitStr = await _priceFormatter.FormatPriceAsync(reportLine.Profit, true, false);
-
-                    var date = DateTime.Now;
-                    if (DateTime.TryParseExact(reportLine.Summary, "yyyy-MM", null, DateTimeStyles.None, out date))
-                        reportLine.Summary = date.ToString("MMMM, yyyy");
-                    else if (DateTime.TryParseExact(reportLine.Summary, "yyyy-M", null, DateTimeStyles.None, out date))
-                        reportLine.Summary = date.ToString("MMMM, yyyy");
-
-                    reportLine.ProfitStr = await _priceFormatter.FormatPriceAsync(reportLine.Profit, true, false);
-                    reportLine.Shipping = await _priceFormatter
-                        .FormatShippingPriceAsync(Convert.ToDecimal(reportLine.Shipping), true, primaryStoreCurrency, (await _workContext.GetWorkingLanguageAsync()).Id, false);
-                    reportLine.Tax = await _priceFormatter.FormatPriceAsync(Convert.ToDecimal(reportLine.Tax), true, false);
-                    reportLine.OrderTotal = await _priceFormatter.FormatPriceAsync(Convert.ToDecimal(reportLine.OrderTotal), true, false);
-                }
-
-                return report;
-            }
-
-            return null;
+            return report;            
         }
 
         /// <summary>
